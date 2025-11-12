@@ -25,7 +25,8 @@ app.use(cors({
     
     // Validate origin with proper pattern matching
     const allowedOrigins = [
-      /^https:\/\/[a-zA-Z0-9-]+\.vercel\.app$/,
+      /^https:\/\/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.vercel\.app$/,
+      /^https:\/\/[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.onrender\.com$/,
       /^http:\/\/localhost(:\d+)?$/,
       /^http:\/\/127\.0\.0\.1(:\d+)?$/
     ];
