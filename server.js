@@ -9,7 +9,14 @@ const incidentRoutes = require('./routes/incidents');
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://panache-frontend-three.vercel.app/',  // Your Vercel URL
+    'http://localhost:3000',
+    'http://localhost:5173'
+  ],
+  credentials: true
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
