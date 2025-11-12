@@ -8,8 +8,29 @@ const incidentRoutes = require('./routes/incidents');
 
 const app = express();
 
-// Middleware
-app.use(cors());
+// FLEXIBLE CORS - Allow Vercel and localhost
+app.use(cors({
+  origin: function(origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) return callback(null, true);
+    
+    // Allow all Vercel deployments and localhost
+    if (origin.includes('vercel.app') || 
+        origin.includes('localhost') || 
+        origin.includes('127.0.0.1')) {
+      return callback(null, true);
+    }
+    
+    // Log and block others
+    console.log('❌ Blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  exposedHeaders: ['Content-Length', 'X-Request-Id']
+}));
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
