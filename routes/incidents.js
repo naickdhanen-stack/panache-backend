@@ -16,10 +16,25 @@ const upload = multer({
     if (file.mimetype.startsWith('image/') || file.mimetype.startsWith('video/')) {
       cb(null, true);
     } else {
-      cb(new Error('Only image and video files are allowed'));
+      cb(new Error('INVALID_FILE_TYPE'));
     }
   }
 });
+
+// Error handler for multer
+const handleMulterError = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'FILE_TOO_LARGE') {
+      return res.status(400).json({ error: 'File size exceeds 10MB limit' });
+    }
+    if (err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: 'Too many files uploaded' });
+    }
+  } else if (err && err.message === 'INVALID_FILE_TYPE') {
+    return res.status(400).json({ error: 'Only image and video files are allowed' });
+  }
+  next(err);
+};
 
 // Get all incidents (Admin and Superuser see all, Users see only their own)
 router.get('/', authenticateToken, async (req, res) => {
@@ -73,14 +88,22 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Get signed URLs for attachments
     if (incident.incident_attachments && incident.incident_attachments.length > 0) {
       for (let attachment of incident.incident_attachments) {
-        const fileName = attachment.file_url.split('/').pop();
-        const { data: signedUrlData } = await supabaseAdmin
-          .storage
-          .from('incident-attachments')
-          .createSignedUrl(fileName, 3600); // 1 hour expiry
+        try {
+          const fileName = attachment.file_url.split('/').pop();
+          const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin
+            .storage
+            .from('incident-attachments')
+            .createSignedUrl(fileName, 3600); // 1 hour expiry
 
-        if (signedUrlData) {
-          attachment.signed_url = signedUrlData.signedUrl;
+          if (signedUrlError) {
+            console.error('Error generating signed URL for attachment:', signedUrlError);
+            attachment.signed_url = null;
+          } else if (signedUrlData) {
+            attachment.signed_url = signedUrlData.signedUrl;
+          }
+        } catch (urlError) {
+          console.error('Error processing signed URL:', urlError);
+          attachment.signed_url = null;
         }
       }
     }
@@ -110,6 +133,18 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
     return res.status(400).json({ error: 'Required fields are missing' });
   }
 
+  // Validate files before creating incident
+  if (req.files && req.files.length > 0) {
+    for (const file of req.files) {
+      if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
+        return res.status(400).json({ error: 'Only image and video files are allowed' });
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        return res.status(400).json({ error: 'File size exceeds 10MB limit' });
+      }
+    }
+  }
+
   try {
     // Create incident
     const { data: incident, error: incidentError } = await supabaseAdmin
@@ -132,38 +167,53 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
     if (incidentError) throw incidentError;
 
     // Upload attachments if any
+    const uploadErrors = [];
     if (req.files && req.files.length > 0) {
       for (const file of req.files) {
         const fileName = `${incident.id}/${Date.now()}-${file.originalname}`;
         
-        // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabaseAdmin
-          .storage
-          .from('incident-attachments')
-          .upload(fileName, file.buffer, {
-            contentType: file.mimetype,
-            upsert: false
-          });
+        try {
+          // Upload to Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabaseAdmin
+            .storage
+            .from('incident-attachments')
+            .upload(fileName, file.buffer, {
+              contentType: file.mimetype,
+              upsert: false
+            });
 
-        if (uploadError) {
-          console.error('Error uploading file:', uploadError);
-          continue;
+          if (uploadError) {
+            console.error('Error uploading file:', uploadError);
+            uploadErrors.push(`Failed to upload ${file.originalname}`);
+            continue;
+          }
+
+          // Save attachment record
+          const { error: attachmentError } = await supabaseAdmin
+            .from('incident_attachments')
+            .insert({
+              incident_id: incident.id,
+              file_url: uploadData.path,
+              file_type: file.mimetype
+            });
+
+          if (attachmentError) {
+            console.error('Error saving attachment record:', attachmentError);
+            uploadErrors.push(`Failed to save attachment for ${file.originalname}`);
+          }
+        } catch (fileError) {
+          console.error('Error processing file:', fileError);
+          uploadErrors.push(`Error processing ${file.originalname}`);
         }
-
-        // Save attachment record
-        await supabaseAdmin
-          .from('incident_attachments')
-          .insert({
-            incident_id: incident.id,
-            file_url: uploadData.path,
-            file_type: file.mimetype
-          });
       }
     }
 
     res.status(201).json({
-      message: 'Incident reported successfully',
-      incident
+      message: uploadErrors.length > 0 
+        ? `Incident reported successfully, but some files failed to upload: ${uploadErrors.join(', ')}`
+        : 'Incident reported successfully',
+      incident,
+      uploadErrors: uploadErrors.length > 0 ? uploadErrors : undefined
     });
   } catch (error) {
     console.error('Error creating incident:', error);
@@ -295,4 +345,4 @@ router.delete('/:id', authenticateToken, authorizeRoles('admin'), async (req, re
   }
 });
 
-module.exports = router;
+module.exports = { router, handleMulterError };

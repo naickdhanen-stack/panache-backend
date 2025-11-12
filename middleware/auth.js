@@ -19,7 +19,15 @@ const authenticateToken = async (req, res, next) => {
       .eq('id', decoded.userId)
       .single();
 
-    if (error || !user || !user.is_active) {
+    if (error) {
+      return res.status(403).json({ error: 'User not found or inactive' });
+    }
+
+    if (!user) {
+      return res.status(403).json({ error: 'User not found or inactive' });
+    }
+
+    if (!user.is_active) {
       return res.status(403).json({ error: 'User not found or inactive' });
     }
 
