@@ -121,15 +121,15 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
     subject,
     date_of_incident,
     project_name,
+    sales_work_order_number,
     source_of_incident,
-    mistake_committed,
     preliminary_investigation,
     details_and_findings,
     suggestions
   } = req.body;
 
-  // Validate required fields
-  if (!subject || !date_of_incident || !source_of_incident || !mistake_committed || !details_and_findings) {
+  // Validate required fields (removed mistake_committed, it's no longer required)
+  if (!subject || !date_of_incident || !source_of_incident || !details_and_findings) {
     return res.status(400).json({ error: 'Required fields are missing' });
   }
 
@@ -146,7 +146,7 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
   }
 
   try {
-    // Create incident
+    // Create incident (removed mistake_committed, added sales_work_order_number)
     const { data: incident, error: incidentError } = await supabaseAdmin
       .from('incidents')
       .insert({
@@ -154,8 +154,8 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
         subject,
         date_of_incident,
         project_name,
+        sales_work_order_number,
         source_of_incident,
-        mistake_committed,
         preliminary_investigation: preliminary_investigation === 'true' || preliminary_investigation === true,
         details_and_findings,
         suggestions,
