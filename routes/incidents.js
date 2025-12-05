@@ -44,6 +44,7 @@ router.get('/', authenticateToken, async (req, res) => {
       .select(`
         *,
         user:users!incidents_user_id_fkey(id, username, department),
+        incident_attachments(*),
         incident_responses(*)
       `)
       .order('created_at', { ascending: false });
@@ -56,6 +57,35 @@ router.get('/', authenticateToken, async (req, res) => {
     const { data: incidents, error } = await query;
 
     if (error) throw error;
+
+    // Generate signed URLs for all attachments
+    if (incidents && incidents.length > 0) {
+      for (let incident of incidents) {
+        if (incident.incident_attachments && incident.incident_attachments.length > 0) {
+          for (let attachment of incident.incident_attachments) {
+            try {
+              // Use the full file_url path from the database
+              const fullPath = attachment.file_url;
+              
+              const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin
+                .storage
+                .from('incident-attachments')
+                .createSignedUrl(fullPath, 3600); // 1 hour expiry
+
+              if (!signedUrlError && signedUrlData) {
+                attachment.signed_url = signedUrlData.signedUrl;
+              } else {
+                console.error('Error generating signed URL for attachment:', signedUrlError);
+                attachment.signed_url = null;
+              }
+            } catch (urlError) {
+              console.error('Error processing signed URL:', urlError);
+              attachment.signed_url = null;
+            }
+          }
+        }
+      }
+    }
 
     res.json(incidents);
   } catch (error) {
@@ -89,11 +119,11 @@ router.get('/:id', authenticateToken, async (req, res) => {
     if (incident.incident_attachments && incident.incident_attachments.length > 0) {
       for (let attachment of incident.incident_attachments) {
         try {
-          const fileName = attachment.file_url.split('/').pop();
+          const fullPath = attachment.file_url;
           const { data: signedUrlData, error: signedUrlError } = await supabaseAdmin
             .storage
             .from('incident-attachments')
-            .createSignedUrl(fileName, 3600); // 1 hour expiry
+            .createSignedUrl(fullPath, 3600); // 1 hour expiry
 
           if (signedUrlError) {
             console.error('Error generating signed URL for attachment:', signedUrlError);
@@ -128,7 +158,7 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
     suggestions
   } = req.body;
 
-  // Validate required fields (removed mistake_committed, it's no longer required)
+  // Validate required fields
   if (!subject || !date_of_incident || !source_of_incident || !details_and_findings) {
     return res.status(400).json({ error: 'Required fields are missing' });
   }
@@ -146,7 +176,7 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
   }
 
   try {
-    // Create incident (removed mistake_committed, added sales_work_order_number)
+    // Create incident
     const { data: incident, error: incidentError } = await supabaseAdmin
       .from('incidents')
       .insert({
