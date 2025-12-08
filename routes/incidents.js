@@ -5,11 +5,11 @@ const { authenticateToken, authorizeRoles } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Configure multer for file uploads
+// Configure multer for file uploads - NO SIZE LIMIT
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB limit
+    fileSize: Infinity, // No file size limit
   },
   fileFilter: (req, file, cb) => {
     // Accept images and videos
@@ -21,12 +21,9 @@ const upload = multer({
   }
 });
 
-// Error handler for multer
+// Error handler for multer - removed file size error
 const handleMulterError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    if (err.code === 'FILE_TOO_LARGE') {
-      return res.status(400).json({ error: 'File size exceeds 10MB limit' });
-    }
     if (err.code === 'LIMIT_FILE_COUNT') {
       return res.status(400).json({ error: 'Too many files uploaded' });
     }
@@ -145,7 +142,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
-// Create incident (Users only)
+// Create incident (Users only) - NO FILE SIZE VALIDATION
 router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attachments', 10), async (req, res) => {
   const {
     subject,
@@ -163,14 +160,11 @@ router.post('/', authenticateToken, authorizeRoles('user'), upload.array('attach
     return res.status(400).json({ error: 'Required fields are missing' });
   }
 
-  // Validate files before creating incident
+  // Validate file types only (no size check)
   if (req.files && req.files.length > 0) {
     for (const file of req.files) {
       if (!file.mimetype.startsWith('image/') && !file.mimetype.startsWith('video/')) {
         return res.status(400).json({ error: 'Only image and video files are allowed' });
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        return res.status(400).json({ error: 'File size exceeds 10MB limit' });
       }
     }
   }
